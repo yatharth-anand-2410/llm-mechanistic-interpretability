@@ -1,4 +1,4 @@
-# 2. Mechanistic Interpretability Core Curriculum
+# Mechanistic Interpretability of LLMs
 
 **Goal:** Look inside the "black box" of the LLM by analyzing its internal activations during the forward pass. This repository contains experiments on `mlx-community/Qwen2.5-1.5B-Instruct-bf16`.
 
@@ -58,7 +58,7 @@ Language models do not "know" facts from Layer 1. The early layers are dedicated
 
 When we run the prompt `"The capital of France is"` and track the exact probability of the token `" Paris"` across all 28 layers, we see a **step-function emergence**:
 
-![Logit Lens Trajectory: Factual](/Users/stokome/.gemini/antigravity/brain/7467dac4-5e6e-433c-986b-f35f094b25dd/trajectory_1.png)
+![Logit Lens Trajectory: Factual](trajectory_1.png)
 
 * From Layer 0 to Layer 22, the model has virtually 0% confidence. It predicts syntax tokens like `" a"`, `" the"`, and `" located"`.
 * **At Layer 23 exactly**, an attention/MLP mechanism fires, injecting the factual look-up of "Paris -> France" into the residual stream. Confidence spikes from ~1% to 78% instantly.
@@ -66,7 +66,7 @@ When we run the prompt `"The capital of France is"` and track the exact probabil
 ### Syntactic & Format Emergence
 By contrast, strict pattern-matching and grammatical formatting decisions are processed differently. If we trace a simple alphabetical sequence prompt `"A B C D E F G H I J K L M N O P Q R S T U V W X Y"` and track the token `" Z"`, we see a smoother, earlier emergence profile:
 
-![Logit Lens Trajectory: Syntax](/Users/stokome/.gemini/antigravity/brain/7467dac4-5e6e-433c-986b-f35f094b25dd/trajectory_2.png)
+![Logit Lens Trajectory: Syntax](trajectory_2.png)
 
 * The model resolves the sequence pattern constraint much earlier in the network.
 * The probability climbs monotonically starting from Layer 7, rather than exhibiting a single sharp spike, indicating that multiple heads across multiple layers are contributing sequence logic incrementally until it hits a 100% peak prediction at the final layer.
