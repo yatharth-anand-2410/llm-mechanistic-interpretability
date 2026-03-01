@@ -68,5 +68,3 @@ By contrast, strict pattern-matching and grammatical formatting decisions are pr
 
 ![Logit Lens Trajectory: Syntax](trajectory_2.png)
 
-* The model resolves the sequence pattern constraint much earlier in the network.
-* The probability climbs monotonically starting from Layer 7, rather than exhibiting a single sharp spike, indicating that multiple heads across multiple layers are contributing sequence logic incrementally until it hits a 100% peak prediction at the final layer.
