@@ -1,70 +1,92 @@
 # Mechanistic Interpretability of LLMs
 
-**Goal:** Look inside the "black box" of the LLM by analyzing its internal activations during the forward pass. This repository contains experiments on `mlx-community/Qwen2.5-1.5B-Instruct-bf16`.
+**Goal:** Look inside the "black box" of the LLM by analyzing its internal activations during the forward pass. This repository contains experiments on `mlx-community/Meta-Llama-3-8B-Instruct-4bit`.
+
+---
 
 ## Phase 1: Model Instrumentation (Notebook 0)
 
-To perform mechanistic interpretability on an Apple Silicon Mac using MLX, we must first build custom infrastructure to extract the internal thoughts of the model. MLX's compiled C++ backends do not natively expose intermediate variables like Hugging Face does.
+To perform mechanistic interpretability on an Apple Silicon Mac using MLX, we built custom infrastructure to extract the internal thoughts of the model.
 
 ### 1. Extracting Hidden States
-Instead of relying on `output_hidden_states=True`, we manually iterate through the 28 Transformer layers of Qwen 1.5B.
+Instead of relying on `output_hidden_states=True`, we manually iterate through the 32 Transformer layers of Llama 3 8B.
 ```python
 # Pass through transformer block
 h = layer(h, mask, None)
 hidden_states[i] = h
 ```
-**CRITICAL FINDING:** For sequences longer than 1 token, you *must* pass the `causal_mask` explicitly into each layer. If omitted, tokens will illegally attend to future tokens during the manual extraction, causing massive mathematical divergence from the ground truth forward pass.
+**CRITICAL FINDING:** For sequences longer than 1 token, you *must* pass the `causal_mask` explicitly into each layer. If omitted, tokens will illegally attend to future tokens during the manual extraction, causing a total mathematical divergence from the ground truth forward pass.
 
 ### 2. The Logit Lens
-The Logit Lens is a mathematical trick to decode the "intermediate thoughts" of the model.
+The Logit Lens is a mathematical trick used to decode the "intermediate thoughts" of the model.
 
 **The Math:**
-In a Transformer, the embedding matrix ($W_E$) takes words and turns them into 1536-dimensional vectors. At the very end of the model, the unembedding matrix ($W_U$ or `lm_head`) takes the final vector and turns it back into a probability distribution over the 151,936 vocabulary words.
-Normally: `Input -> W_E -> Layer 1 -> ... -> Layer 28 -> W_U -> Output`
+In Llama 3, the embedding matrix ($W_E$) turns tokens into 4096-dimensional vectors. At the end of the network, the unembedding head (`lm_head`) turns the final vector back into a probability distribution.
+Normally: `Input -> W_E -> Layer 1 -> ... -> Layer 32 -> lm_head -> Output`
 
 The Logit Lens takes a shortcut:
-`Input -> W_E -> Layer 1 -> W_U -> Output`
+`Input -> W_E -> Layer 1 -> lm_head -> Output`
 
-This works because of the **Residual Stream**. Every layer adds its output on top of a single continuous conveyor belt vector (`x_new = x_old + layer_output`). Therefore, vectors at layer 14 are already in the same mathematical "language" as the final layer!
+This works because of the **Residual Stream**. Every layer adds its output on top of a single continuous "conveyor belt" vector (`x_new = x_old + layer_output`). Therefore, vectors at Layer 16 are already in the same mathematical "language" as the final layer, allowing us to peak at the model's progress.
 
-**Implementation Note:** Qwen 2.5 uses tied word embeddings. In MLX, applying the tied embedding requires `model.model.embed_tokens.as_linear()`, not a standard `.weight.T` matrix multiplication, to maintain exact mathematical precision (0.0000 discrepancy).
+---
 
-### 3. Visualizing Attention Matrices
-We implemented a monkey-patch context manager for `mlx.nn.MultiHeadAttention.__call__` to intercept the raw matchmaking scores.
+## Phase 2: Knowledge Emergence & Structural Limits (Notebook 1)
 
-**The Math of Attention:**
-$$ \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q K^T}{\sqrt{d_k}} + M\right) V $$
-* **Query ($Q$)**: The current token broadcasting "Here is what I am looking for."
-* **Key ($K$)**: Every past token broadcasting "Here is what I am."
-* **Dot Product ($Q \cdot K$)**: A Match Score. When the "what I'm looking for" vector lines up with the "what I am" vector of a past token, the dot product explodes into a high number.
-* **Softmax**: Turns raw match scores into a clean percentage breakdown (e.g., 95% on Token A, 5% on Token B).
+This phase focuses on **intervention**. By removing layers and measuring the "breaking point" of different tasks, we map the model's functional topology.
 
-**We intercept the matrix immediately after the Softmax step.** This gives us a raw percentage grid showing exactly *how the model is distributing its attention* before it actually moves the data (the $V$ step).
+### 1. Task-Specific Emergence Trajectories
+We found that the network does not treat all tasks with the same priority. High-level facts are retrieved much later than low-level syntax.
 
-#### Example: Layer 0, Head 4 Attention Heatmap
-*(Prompt: "The boy ran fast because he")*
+| Prompt Type | Example | Emergence Layer | Profile Type |
+| :--- | :--- | :--- | :--- |
+| **Arithmetic** | `2+2=` | **Layer 8** | Smooth/Linear |
+| **Factual Recall** | `The capital of France is` | **Layer 19** | Step-Function (Sharp) |
+| **Relational Logic**| `The opposite of hot is...`| **Layer 22** | Late/Gradual |
 
-![Attention Matrix for Layer 0 Head 4](attention_heatmap.png)
+![Factual vs Arithmetic Trajectory](trajectory_facts.png)
+*Figure 1: Comparison of emergence points. Note the sharp spike for facts vs. the early rise for patterns.*
 
-* Notice the upper right triangle is completely white due to the causal mask (tokens cannot look into the future).
-* Dark blue squares indicate where Head 4 is putting its contextual focus!
+---
 
-## Phase 2: Core Interpretability Techniques (Notebook 1)
+### 2. The "Critical Path" (Redundancy Analysis)
+We tested the model's resilience by removing one layer at a time. The results identified a narrow **Critical Path** surrounded by massive **Functional Redundancy**.
 
-While Phase 1 built the x-ray machine, Phase 2 actually uses it to look at the bones of the network. We specifically use the **Logit Lens** to track the probability of a specific word across all 28 layers of the model.
+| Layer Range | Role | Status | Consequence of Removal |
+| :--- | :--- | :--- | :--- |
+| **0 - 1** | **Context Initialization** | **CRITICAL** | Total output collapse (Garbage tokens) |
+| **2 - 29** | **Iterative Refinement** | **REDUNDANT** | Near-zero impact on final accuracy |
+| **30** | **Logit Sharpening** | **CRITICAL** | Prediction "smears" (e.g., ' Paris' becomes ' the') |
+| **31** | **Final Output** | **CRITICAL** | No prediction possible |
 
-### Factual Knowledge Emergence
-Language models do not "know" facts from Layer 1. The early layers are dedicated to processing syntax and grammar. Factual knowledge is injected into the residual stream by specific Attention/MLP heads in the middle-to-late layers.
+---
 
-When we run the prompt `"The capital of France is"` and track the exact probability of the token `" Paris"` across all 28 layers, we see a **step-function emergence**:
+### 3. The "Middle Void" Theory
+Our most significant discovery: For shallow tasks, **60% of the model is mathematically optional.**
 
-![Logit Lens Trajectory: Factual](trajectory_1.png)
+We discovered a contiguous window from **Layer 3 to Layer 21** that can be entirely deleted while the model still correctly predicts "Paris" with high confidence.
 
-* From Layer 0 to Layer 22, the model has virtually 0% confidence. It predicts syntax tokens like `" a"`, `" the"`, and `" located"`.
-* **At Layer 23 exactly**, an attention/MLP mechanism fires, injecting the factual look-up of "Paris -> France" into the residual stream. Confidence spikes from ~1% to 78% instantly.
+| Task | Total Layers | Max Removable Window | % Optional |
+| :--- | :--- | :--- | :--- |
+| **Factual Recall** | 32 | **19 Layers** (3-21) | 59.3% |
+| **Arithmetic** | 32 | **21 Layers** (2-22) | 65.6% |
+| **Relational Logic**| 32 | **~5 Layers** | 15.6% |
 
-### Syntactic & Format Emergence
-By contrast, strict pattern-matching and grammatical formatting decisions are processed differently. If we trace a simple alphabetical sequence prompt `"A B C D E F G H I J K L M N O P Q R S T U V W X Y"` and track the token `" Z"`, we see a smoother, earlier emergence profile:
+**Mechanistic Conclusion:**
+The "Middle Void" proves that the middle layers act as a **mathematical conveyor belt**. If the input vector is already "correct enough" by Layer 2, it can coast through the void and still trigger the correct factual lookup heads at Layer 22.
 
-![Logit Lens Trajectory: Syntax](trajectory_2.png)
+---
 
+## Phase 3: Mathematical Decomposition (Notebook 2)
+
+### 1. Residual Stream Decomposition
+We measure the **Cosine Similarity** between Layer $N$ and Layer $N-1$ to find the "Active Decision Points."
+
+![Cosine Similarity Plot](cosine_similarity.png)
+*Figure 2: The sharpest drops in similarity correspond to the knowledge spikes in Figure 1.*
+
+### 2. Attention Visualization
+We intercept the attention matrices to see the matchmaking process in real-time.
+
+![Attention Heatmap](attention_heatmap.png)
+*Figure 3: Attention weights showing the grammatical relationship building in early layers.*
