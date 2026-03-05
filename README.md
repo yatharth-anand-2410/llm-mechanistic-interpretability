@@ -1,5 +1,6 @@
 # Mechanistic Interpretability of LLMs
 
+
 **Goal:** Look inside the "black box" of the LLM by analyzing its internal activations during the forward pass. This repository contains experiments on `mlx-community/Meta-Llama-3-8B-Instruct-4bit`.
 
 ---
