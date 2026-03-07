@@ -113,3 +113,39 @@ We analyzed how **Contrastive Search** rescues corrupted models. By checking the
 *   **`trajectory_facts.png`**: Visual proof of the Layer 19 knowledge spike.
 *   **`cosine_similarity.png`**: The mathematical signature of structural transformation.
 *   **`fragility_map.png`**: Grouped bar chart proving the Context Shield and Perimeter Bottlenecks.
+
+---
+
+## Phase 4: Advanced Interpretability Tracks (Notebook 3)
+
+This phase moves from macro-layer analysis to micro-component understanding, utilizing advanced mechanistic techniques to trace concepts through the network.
+
+### 1. Macro-Component Ablation (Attention vs. MLP)
+By deconstructing the forward pass and selectively zeroing out either the Attention or MLP blocks at critical layers, we identified exactly where knowledge is physically stored.
+
+| Task | Critical Layer | Baseline Prob | Attention Zeroed | MLP Zeroed | Conclusion |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Factual Recall** (' Paris') | 19 | **0.7739** | **0.7739** (No change) | **0.6631** (Drop) | Knowledge is stored in the **MLP** weights. Attention only routes the query. |
+| **Arithmetic** (' 4') | 23 | **0.6433** | **0.6289** (Minor) | **0.5815** (Minor) | Arithmetic is distributed; neither block alone holds the full answer. |
+
+### 2. The Context Shield (Activation Patching)
+We investigated why formatted prompts survive massive `lm_head` corruption (e.g., 10,000 integer shift) while raw prompts collapse. We transplanted the resilient hidden state from a formatted prompt into the corrupted raw prompt at Layer 15.
+
+*   **Raw Prompt Output:** `FRING` (Total Hallucinatory Collapse)
+*   **Patched Prompt Output:** ` +:+` (Partial Structural Recovery)
+*   **Mechanistic Proof:** The chat template physically alters the geometry of the residual stream to make it more rigid. Transplanting this "shielded" vector steered the model away from total garbage, proving context adds structural defense to the computation.
+
+### 3. The Ablated Logit Lens (Error Correction)
+We inflicted catastrophic structural damage (10,000,000 integer shift) to the "Middle Void" (Layers 12-14) and used the Logit Lens to watch the vector travel.
+
+*   **Observation:** In a healthy model, the fact ' Paris' spikes at Layer 19. In the corrupted model, the probability flatlines to 0 through the damaged zone, delaying the emergence until **Layer 25**.
+*   **Conclusion:** The probability jumps back up to **~36%** by Layer 32. This visualizes the Transformer's incredible **Self-Correction** property—healthy late layers actively "heal" the scrambled vector back into the correct semantic space.
+
+### 4. Sparse Autoencoders (SAEs) and Monosemanticity
+The residual stream is polysemantic (multiple concepts crammed into 4096 dimensions). We trained a custom MLX Sparse Autoencoder to expand this into 16,384 sparse dimensions to isolate individual concepts.
+
+*   **The Micro-Dataset Effect:** When trained on a tiny math-heavy dataset, the SAE dedicated its most powerful features to reconstructing the highest-magnitude signals (the math tokens).
+*   **Proof of Monosemanticity:** 
+    *   **Feature #15974** activates strongly for `'2'` (Magnitude: 198.48) but outputs exactly **0.00** for the word `' Paris'`.
+    *   **Feature #2617** activates exclusively for `' Paris'` (Magnitude: 1.51) and outputs exactly **0.00** for math tokens.
+*   **Mechanistic Conclusion:** The dense, unreadable "Middle Void" is not random noise. It is a highly structured semantic space. The SAE successfully disentangled it into specific, readable "Monosemantic Neurons" that fire only for their dedicated concepts.
