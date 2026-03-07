@@ -1,6 +1,5 @@
 # Mechanistic Interpretability of LLMs
 
-
 **Goal:** Look inside the "black box" of the LLM by analyzing its internal activations during the forward pass. This repository contains experiments on `mlx-community/Meta-Llama-3-8B-Instruct-4bit`.
 
 ---
@@ -37,16 +36,16 @@ This works because of the **Residual Stream**. Every layer adds its output on to
 This phase focuses on **intervention**. By removing layers and measuring the "breaking point" of different tasks, we map the model's functional topology.
 
 ### 1. Task-Specific Emergence Trajectories
-We found that the network does not treat all tasks with the same priority. High-level facts are retrieved much later than low-level syntax.
+We found that the network does not treat all tasks with the same priority. High-level facts are retrieved at different depths.
 
 | Prompt Type | Example | Emergence Layer | Profile Type |
 | :--- | :--- | :--- | :--- |
-| **Arithmetic** | `2+2=` | **Layer 8** | Smooth/Linear |
 | **Factual Recall** | `The capital of France is` | **Layer 19** | Step-Function (Sharp) |
-| **Relational Logic**| `The opposite of hot is...`| **Layer 22** | Late/Gradual |
+| **Arithmetic** | `2+2=` | **Layer 23** | Oscillatory / Syntactic |
+| **Relational Logic**| `The opposite of hot is...`| **Layer 25** | Distributed / Gradual |
 
 ![Factual vs Arithmetic Trajectory](trajectory_facts.png)
-*Figure 1: Comparison of emergence points. Note the sharp spike for facts vs. the early rise for patterns.*
+*Figure 1: Comparison of emergence points. Note the sharp spike for facts vs. the later stability for arithmetic.*
 
 ---
 
@@ -69,25 +68,47 @@ We discovered a contiguous window from **Layer 3 to Layer 21** that can be entir
 
 | Task | Total Layers | Max Removable Window | % Optional |
 | :--- | :--- | :--- | :--- |
-| **Factual Recall** | 32 | **19 Layers** (3-21) | 59.3% |
-| **Arithmetic** | 32 | **21 Layers** (2-22) | 65.6% |
-| **Relational Logic**| 32 | **~5 Layers** | 15.6% |
+| **Factual Recall** | 32 | **15 Layers** (5-19) | 46.8% |
+| **Arithmetic** | 32 | **19 Layers** (3-21) | 59.3% |
+| **Relational Logic**| 32 | **10 Layers** (20-29) | 31.2% |
 
 **Mechanistic Conclusion:**
 The "Middle Void" proves that the middle layers act as a **mathematical conveyor belt**. If the input vector is already "correct enough" by Layer 2, it can coast through the void and still trigger the correct factual lookup heads at Layer 22.
 
 ---
 
-## Phase 3: Mathematical Decomposition (Notebook 2)
+## Phase 3: Mathematical Decomposition & Fragility Mapping (Notebook 2)
 
-### 1. Residual Stream Decomposition
-We measure the **Cosine Similarity** between Layer $N$ and Layer $N-1$ to find the "Active Decision Points."
+Phase 3 bridges interpretability with **Weight Surgery** (Phase 1) and **Decoding Strategies** (Phase 2) to find the model's structural bottlenecks.
 
-![Cosine Similarity Plot](cosine_similarity.png)
-*Figure 2: The sharpest drops in similarity correspond to the knowledge spikes in Figure 1.*
+### 1. Dual-Axis Correlation Analysis
+By overlaying **Target Probability** with **Cosine Similarity (Transformation Rate)**, we proved that factual spikes correlate with specific mathematical "Decision Points."
 
-### 2. Attention Visualization
-We intercept the attention matrices to see the matchmaking process in real-time.
+| Metric | perimeter (L1-3) | middle (L10-28) | final (L31) |
+| :--- | :--- | :--- | :--- |
+| **Cosine Similarity** | **Low (~0.6)** | **High (>0.9)** | **Very Low (~0.45)** |
+| **Primary Workload** | Context Encoding | Incremental Refinement | Logit Sharpening |
 
-![Attention Heatmap](attention_heatmap.png)
-*Figure 3: Attention weights showing the grammatical relationship building in early layers.*
+### 2. The "Fragility Sandwich" Theory
+We performed a **Triple-Prompt Functional Scan** to find the exact bit-level noise tolerance (Integer Tipping Point) for every layer.
+
+| Layer Index | Factual Shift Limit | Reasoning Shift Limit | Arithmetic Shift Limit |
+| :--- | :--- | :--- | :--- |
+| **Layer 1 (Logic)** | 1,328,126 | 840,210 | 1,105,400 |
+| **Layer 15 (Void)** | >10,000,000 | >10,000,000 | >10,000,000 |
+| **Layer 32 (LM_Head)** | 1,000,005 | 1,000,005 | 1,000,005 |
+
+**Key Breakthroughs:**
+1.  **Internal logic is more fragile than the interface:** Layers 1 and 31 are often more sensitive to noise than the `lm_head` itself.
+2.  **Reasoning Tension:** Relational reasoning tasks place the weights under higher "mathematical tension," resulting in lower tipping points in early-middle layers compared to factual lookups.
+3.  **Recursive Collapse:** Weight surgery on the `lm_head` does not destroy knowledge in a single pass; it triggers a **Recursive Failure** as garbage tokens are fed back into the model during autoregressive generation.
+
+### 3. Mechanistic "Self-Healing"
+We analyzed how **Contrastive Search** rescues corrupted models. By checking the $L_2$ Norm of embeddings, Contrastive Search acts as a **Structural Filter**, leveraging the healthy internal residual stream to override the noisy, corrupted outputs of the damaged `lm_head`.
+
+---
+
+## Visual Evidence
+*   **`trajectory_facts.png`**: Visual proof of the Layer 19 knowledge spike.
+*   **`cosine_similarity.png`**: The mathematical signature of structural transformation.
+*   **`fragility_map.png`**: Log-scale proof of the "Fragility Sandwich" (Low limit at perimeters, High limit in middle).
